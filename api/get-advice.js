@@ -19,9 +19,9 @@ export default async function handler(request, response) {
   }
 
   // Get the user's data from the request body
-  const { age, income, loanAmount, loanTerm } = request.body;
+  const { age, income, loanAmount, loanTerm, request_type } = request.body;
 
-  if (!age || !income || !loanAmount || !loanTerm) {
+  if (!age || !income || !loanAmount || !loanTerm || !request_type) {
     return response.status(400).json({ error: 'Missing required fields' });
   }
   
@@ -32,14 +32,17 @@ export default async function handler(request, response) {
   }
 
   // --- Construct the prompt on the server-side ---
-  let personaPrompt;
-  if (age < 35) {
-      personaPrompt = `Bạn là Em Duy CVKH - một chuyên gia tư vấn tài chính từ Sacombank, với phong cách Gen Z, hài hước và vui tính. Hãy bắt đầu lời chào thật "cháy" và "keo lỳ", sau đó đi vào phân tích. Luôn gọi người dùng là "Anh/Chị".`;
-  } else {
-      personaPrompt = `Bạn là Em Duy - Chuyên gia tư vấn tài chính Sacombank. Hãy trả lời một cách chuyên nghiệp, nghiêm túc và rõ ràng. Bắt đầu bằng lời chào trang trọng và luôn gọi người dùng là "Anh/Chị".`;
-  }
+  let finalPrompt = '';
 
-  const mainPrompt = `
+  if (request_type === 'initial_advice') {
+    let personaPrompt;
+    if (age < 35) {
+        personaPrompt = `Bạn là Em Duy CVKH - một chuyên gia tư vấn tài chính từ Sacombank, với phong cách Gen Z, hài hước và vui tính. Hãy bắt đầu lời chào thật "cháy" và "keo lỳ", sau đó đi vào phân tích. Luôn gọi người dùng là "Anh/Chị".`;
+    } else {
+        personaPrompt = `Bạn là Em Duy - Chuyên gia tư vấn tài chính Sacombank. Hãy trả lời một cách chuyên nghiệp, nghiêm túc và rõ ràng. Bắt đầu bằng lời chào trang trọng và luôn gọi người dùng là "Anh/Chị".`;
+    }
+
+    finalPrompt = personaPrompt + `
 Nhiệm vụ của bạn là phân tích thông tin khách hàng và hai gói vay dưới đây để đưa ra đề xuất phù hợp, kèm bảng tính tham khảo và phân tích khả năng trả nợ.
 
 ### Thông tin hai gói vay:
@@ -88,8 +91,53 @@ Nhiệm vụ của bạn là phân tích thông tin khách hàng và hai gói va
 * Sử dụng tiếng Việt.
 * Dùng Markdown để định dạng câu trả lời (tiêu đề, danh sách, in đậm) cho dễ đọc.
 `;
-            
-  const finalPrompt = personaPrompt + mainPrompt;
+  } else if (request_type === 'financial_check') {
+    const isZHome = age >= 18 && age <= 40 && loanAmount <= 10000000000;
+    const interestRate = isZHome ? 0.065 : 0.08;
+    const principalPerMonth = loanAmount / (loanTerm * 12);
+    const interestMonth1 = loanAmount * (interestRate / 12);
+    const firstMonthPayment = principalPerMonth + interestMonth1;
+
+    if (income >= firstMonthPayment) {
+        // Nhóm 1: Thu nhập cao hơn khoản trả nợ
+        finalPrompt = `Bạn là Em Duy - Chuyên gia tư vấn tài chính Sacombank. Khách hàng có thu nhập (${new Intl.NumberFormat('vi-VN').format(income)} VND) đủ để chi trả khoản vay tháng đầu tiên (${new Intl.NumberFormat('vi-VN').format(firstMonthPayment)} VND). Hãy đưa ra lời khuyên chi tiết cho họ.
+
+### Yêu cầu:
+1.  **Lời mở đầu:** Chúc mừng Anh/Chị vì có tình hình tài chính vững vàng.
+2.  **Lập kế hoạch ngân sách:**
+    * Giới thiệu quy tắc phân bổ thu nhập phổ biến như 50/30/20 (50% chi tiêu thiết yếu, 30% mong muốn, 20% tiết kiệm & trả nợ) hoặc một quy tắc khác phù hợp.
+    * Hướng dẫn Anh/Chị cách áp dụng quy tắc này vào thu nhập hàng tháng của mình, có ví dụ cụ thể.
+3.  **Mẹo tiết kiệm thông minh:**
+    * Gợi ý các cách tiết kiệm thực tế tại Việt Nam: săn voucher trên sàn thương mại điện tử, sử dụng app hoàn tiền, so sánh giá trước khi mua, tự nấu ăn thay vì đi ngoài...
+4.  **Dự phòng rủi ro:**
+    * Nhấn mạnh tầm quan trọng của quỹ khẩn cấp (tương đương 3-6 tháng chi phí sinh hoạt).
+    * Hướng dẫn cách bắt đầu xây dựng quỹ này.
+5.  **Cân nhắc trả nợ trước hạn:**
+    * Phân tích lợi ích của việc trả nợ trước hạn (giảm tổng lãi phải trả).
+    * Khuyên Anh/Chị nên cân nhắc phương án này nếu có nguồn thu nhập ổn định và đã có quỹ dự phòng.
+6.  **Giọng văn:** Chuyên nghiệp, tận tình, dễ hiểu. Luôn gọi khách hàng là "Anh/Chị".`;
+    } else {
+        // Nhóm 2: Thu nhập thấp hơn khoản trả nợ
+        finalPrompt = `Bạn là Em Duy - Chuyên gia tư vấn tài chính Sacombank. Khách hàng có thu nhập (${new Intl.NumberFormat('vi-VN').format(income)} VND) thấp hơn khoản vay tháng đầu tiên (${new Intl.NumberFormat('vi-VN').format(firstMonthPayment)} VND). Hãy đưa ra lời khuyên chi tiết và mang tính cảnh báo nhưng vẫn đồng cảm.
+
+### Yêu cầu:
+1.  **Cảnh báo rủi ro:**
+    * Bắt đầu bằng việc chỉ ra rằng mức thu nhập hiện tại có thể gặp khó khăn để chi trả khoản vay, cần xem xét lại kế hoạch tài chính một cách nghiêm túc.
+2.  **Lập danh sách ưu tiên chi tiêu:**
+    * Hướng dẫn cách liệt kê và phân loại các khoản chi tiêu (thiết yếu, quan trọng, có thể cắt giảm).
+    * Gợi ý các khoản có thể cắt giảm ngay lập tức (ví dụ: giải trí đắt đỏ, mua sắm không cần thiết, ăn ngoài thường xuyên).
+3.  **Tăng nguồn thu nhập:**
+    * Khuyến nghị tìm kiếm các nguồn thu nhập phụ.
+    * Gợi ý một vài ý tưởng thực tế: làm thêm công việc tự do (freelance) theo chuyên môn, bán hàng online, nhận các công việc thời vụ...
+4.  **Đàm phán với ngân hàng:**
+    * Tư vấn rằng Anh/Chị có thể chủ động liên hệ với Em Duy để thảo luận về các phương án như kéo dài thời gian vay để giảm số tiền trả hàng tháng.
+5.  **Xây dựng quỹ dự phòng tối thiểu:**
+    * Nhấn mạnh rằng dù khó khăn, việc bắt đầu một quỹ dự phòng nhỏ (ví dụ 1-2 triệu) là rất quan trọng để tránh các cú sốc tài chính.
+6.  **Giọng văn:** Đồng cảm, mang tính xây dựng, không phán xét. Luôn gọi khách hàng là "Anh/Chị".`;
+    }
+  } else {
+    return response.status(400).json({ error: 'Invalid request type' });
+  }
 
   // --- Call the Gemini API ---
   const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
